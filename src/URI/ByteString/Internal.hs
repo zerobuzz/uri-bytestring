@@ -71,16 +71,20 @@ serializeRelativeRef RelativeRef {..} = authority <> path <> query <> fragment
     path = mconcat $ intersperse (c8 '/') $ map urlEncodePath segs
     segs = BS.split slash rrPath
     authority = maybe mempty serializeAuthority rrAuthority
-    query = serializeQuery rrQuery
+    query = serializeQuery False rrQuery
     fragment = maybe mempty (\s -> c8 '#' <> bs s) rrFragment
 
 
 -------------------------------------------------------------------------------
-serializeQuery :: Query -> Builder
-serializeQuery (Query []) = mempty
-serializeQuery (Query ps) =
-    c8 '?' <> mconcat (intersperse (c8 '&') (map serializePair ps))
+-- | The boolean argument is used to switch between ordinary and matrix
+-- syntax.  See 'serializePathSegMatrix'.
+serializeQuery :: Bool -> Query -> Builder
+serializeQuery _ (Query []) = mempty
+serializeQuery matrix (Query ps) =
+    qmark <> mconcat (intersperse sep (map serializePair ps))
   where
+    qmark = if matrix then "" else c8 '?'
+    sep = c8 $ if matrix then ';' else '&'
     serializePair (k, v) = urlEncodeQuery k <> c8 '=' <> urlEncodeQuery v
 
 
@@ -161,7 +165,7 @@ uriParser opts = do
 relativeRefParser :: URIParserOptions -> URIParser RelativeRef
 relativeRefParser opts = do
   (authority, path) <- hierPartParser <|> rrPathParser
-  query <- queryParser opts
+  query <- queryParser opts False
   frag  <- mFragmentParser
   case frag of
     Just _ -> endOfInput `orFailWith` MalformedFragment
@@ -377,17 +381,21 @@ firstRelRefSegmentParser = A.takeWhile (inClass (pchar \\ ":")) `orFailWith` Mal
 -- is what most users are expecting to see. One alternative could be
 -- to just expose the query string as a string and offer functions on
 -- URI to parse a query string to a Query.
-queryParser :: URIParserOptions -> URIParser Query
-queryParser opts = do
+--
+-- The boolean argument is used to switch between ordinary and matrix
+-- syntax.  See 'parsePathSegMatrix'.
+queryParser :: URIParserOptions -> Bool -> URIParser Query
+queryParser opts matrix = do
   mc <- peekWord8 `orFailWith` OtherError "impossible peekWord8 error"
   case mc of
     Just c
-      | c == question -> skip' 1 *> itemsParser
+      | c == question -> if matrix then fail' MalformedPath else skip' 1 *> itemsParser
       | c == hash     -> pure mempty
       | otherwise     -> fail' MalformedPath
     _      -> pure mempty
   where
-    itemsParser = Query <$> A.sepBy' (queryItemParser opts) (word8' ampersand)
+    sep = if matrix then semicolon else ampersand
+    itemsParser = Query <$> A.sepBy' (queryItemParser opts) (word8' sep)
 
 
 -------------------------------------------------------------------------------
@@ -529,6 +537,11 @@ question = 63
 -------------------------------------------------------------------------------
 ampersand :: Word8
 ampersand = 38
+
+
+-------------------------------------------------------------------------------
+semicolon :: Word8
+semicolon = 59
 
 
 -------------------------------------------------------------------------------
@@ -748,3 +761,42 @@ urlEncodeQuery = urlEncode unreserved8
 -- | Encode a ByteString for use in the path section of a URL
 urlEncodePath :: ByteString -> Builder
 urlEncodePath = urlEncode unreservedPath8
+
+
+-------------------------------------------------------------------------------
+-- path utilities
+-------------------------------------------------------------------------------
+
+-- | Split a bytestring up into its segments.  Drop all empty segments
+-- (canonicalization).
+parsePath :: ByteString -> [PathSeg]
+parsePath = fmap PathSeg . filter (not . BS.null) . spl
+  where
+    spl path = case BS.findIndex (== (fromIntegral $ ord '/')) path of
+        Nothing -> [path]
+        Just ix -> case BS.splitAt ix path of
+            (seg, segs) -> seg : spl (BS.tail segs)
+
+-- | Compose path segments into a bytestring.  Make all paths absolute
+-- (the canonical representation does not allow to distinguish between
+-- relative an absolute paths.)
+serializePath :: [PathSeg] -> ByteString
+serializePath = ("/" <>) . BS.intercalate "/" . fmap fromPathSeg
+
+-- | Split a bytestring up into its segments, and parse each segment
+-- as a matrix query.  Canonicalization works as in 'parsePath'.
+parsePathMatrix :: ByteString -> [PathSegMatrix]
+parsePathMatrix = fmap (parsePathSegMatrix . fromPathSeg) . parsePath
+
+-- | Undo 'parsePathMatrix'.  Canonicalization works as in 'serializePath'.
+serializePathMatrix :: [PathSegMatrix] -> ByteString
+serializePathMatrix = serializePath . fmap (PathSeg . serializePathSegMatrix)
+
+parsePathSegMatrix :: ByteString -> PathSegMatrix
+parsePathSegMatrix seg = case parseOnly' OtherError (queryParser strictURIParserOptions True) seg of
+    Left _ -> PathSegSimple seg
+    Right qry -> PathSegMatrix qry
+
+serializePathSegMatrix :: PathSegMatrix -> ByteString
+serializePathSegMatrix (PathSegSimple seg) = seg
+serializePathSegMatrix (PathSegMatrix qry) = BB.toByteString $ serializeQuery True qry

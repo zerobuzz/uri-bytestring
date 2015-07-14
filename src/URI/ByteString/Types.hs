@@ -82,6 +82,20 @@ data URIParserOptions = URIParserOptions {
 
 
 -------------------------------------------------------------------------------
+-- | Paths in uris are opaque, but 'readPath' can be used to give it some
+-- structure.  See also: 'PathSegMatrix'.
+newtype PathSeg = PathSeg { fromPathSeg :: ByteString }
+    deriving (Show, Eq, Monoid, Generic, Typeable, Ord)
+
+
+-------------------------------------------------------------------------------
+-- | A variant of 'PathSeg' with support for matrix parameters.  See also:
+-- 'readPathMatrix'.
+data PathSegMatrix = PathSegSimple ByteString | PathSegMatrix Query
+    deriving (Show, Eq, Generic, Typeable, Ord)
+
+
+-------------------------------------------------------------------------------
 -- | URI Parser Types
 -------------------------------------------------------------------------------
 

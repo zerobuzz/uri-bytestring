@@ -36,6 +36,8 @@ module URI.ByteString
     , SchemaError(..)
     , URIParseError(..)
     , URIParserOptions(..)
+    , PathSeg(..)
+    , PathSegMatrix(..)
     , strictURIParserOptions
     , laxURIParserOptions
     -- * Parsing
@@ -50,6 +52,13 @@ module URI.ByteString
     , urlEncodeQuery
     , urlEncodePath
     , urlEncode
+    -- * typed path
+    , parsePath
+    , parsePathMatrix
+    , parsePathSegMatrix
+    , serializePath
+    , serializePathMatrix
+    , serializePathSegMatrix
     -- * Lenses
     -- ** Lenses over 'Scheme'
     , schemeBSL
