@@ -25,6 +25,8 @@ tests = testGroup "URI.Bytestring"
   , uriParseErrorInstancesTests
   , lensTests
   , serializeURITests
+  , pathSegTests
+  , pathSegMatrixTests
   ]
 
 
@@ -310,4 +312,41 @@ serializeURITests = testGroup "serializeURI"
                  (Just "somefragment")
        let res = BB.toLazyByteString (serializeURI uri)
        res @?= "http://user:pass@www.example.org/?foo=bar#somefragment"
+  ]
+
+
+-------------------------------------------------------------------------------
+pathSegTests :: TestTree
+pathSegTests = testGroup "pathSegTests"
+  [
+    testProperty "segments do not contain '/'" $
+       not . any (B8.elem '/') . fmap fromPathSeg . parsePath
+  , testProperty "serialize . parse = id" $ \ segs ->
+       (parsePath . serializePath) segs == segs
+  , testProperty "parse . serialize = id" $ \ path ->
+       (serializePath . parsePath) path == path
+  ]
+
+
+-------------------------------------------------------------------------------
+pathSegMatrixTests :: TestTree
+pathSegMatrixTests = testGroup "pathSegMatrixTests"
+  [
+    testCase "example 1" $
+       serializePathMatrix
+         [ PathSegMatrix (Query [("k", ""), ("s", "")])
+         , PathSegSimple "wef"
+         , PathSegMatrix (Query [("k", "v"), ("s", "w")])
+         ]
+       @?= "k=;s=/wef/k=v;s=w"
+
+  , testCase "example 2" $
+       parsePathMatrix "/k/" @?= [PathSegMatrix (Query [("k", "")])]
+
+  , testProperty "segments do not contain '/'" $
+       not . any (B8.elem '/') . fmap serializePathSegMatrix . parsePathMatrix
+  , testProperty "serialize . parse = id" $ \ segs ->
+       (parsePathMatrix . serializePathMatrix) segs == segs
+  , testProperty "parse . serialize = id" $ \ path ->
+       (serializePathMatrix . parsePathMatrix) path == path
   ]

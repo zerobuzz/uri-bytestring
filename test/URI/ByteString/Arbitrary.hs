@@ -58,6 +58,14 @@ instance Arbitrary Query where
   arbitrary = Query <$> arbitrary
 
 
+instance Arbitrary PathSeg where
+  arbitrary = PathSeg <$> arbitrary
+
+
+instance Arbitrary PathSegMatrix where
+  arbitrary = oneof [PathSegSimple <$> arbitrary, PathSegMatrix <$> arbitrary]
+
+
 instance Arbitrary URIParserOptions where
   arbitrary = URIParserOptions <$> arbitrary
 
